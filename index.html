@@ -123,7 +123,7 @@ const COPY_ICON = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75
 const CHECK_ICON = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>';
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 const [fileInput, dropArea, dropZone, viewer] = ['#file-input', '#drop-area', '#drop-zone', '#viewer'].map($);
-let currentFileName = '', lastDirHandle = null;
+let currentFileName = '', lastDirHandle = null, currentFileHandle = null;
 
 fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
 dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
@@ -175,7 +175,7 @@ async function scanDirHandle(dirHandle) {
 
 async function walkHandle(dirHandle, path, files) {
   for await (const entry of dirHandle.values()) {
-    if (entry.kind === 'file' && entry.name.endsWith('.jsonl')) { const f = await entry.getFile(); f._dirPath = path; files.push(f); }
+    if (entry.kind === 'file' && entry.name.endsWith('.jsonl')) { const f = await entry.getFile(); f._dirPath = path; f._fileHandle = entry; files.push(f); }
     else if (entry.kind === 'directory') await walkHandle(entry, entry.name, files);
   }
 }
@@ -245,6 +245,7 @@ function relativeTime(date) {
 
 function loadFile(file) {
   currentFileName = file.name;
+  currentFileHandle = file._fileHandle || null;
   dropZone.classList.add('has-content');
   viewer.classList.add('active');
   $('#stats-bar').innerHTML = '';
@@ -257,6 +258,15 @@ function loadFile(file) {
     render(entries);
   };
   reader.readAsText(file);
+}
+
+async function refreshCurrentFile() {
+  if (!currentFileHandle) return;
+  try {
+    const file = await currentFileHandle.getFile();
+    file._fileHandle = currentFileHandle;
+    loadFile(file);
+  } catch {}
 }
 
 function render(entries) {
@@ -286,9 +296,10 @@ function render(entries) {
   $('#stats-bar').innerHTML = [mkStat('Model', stats.model || '-', ''), mkStat('Duration', durationStr, ''), mkStat('Turns', stats.turns, ''), mkStat('Messages', stats.messages, ''), mkStat('Input', fmt(stats.inputTokens), 'tokens-in'), mkStat('Output', fmt(stats.outputTokens), 'tokens-out'), mkStat('Cache Read', fmt(stats.cacheRead), 'tokens-cache'), mkStat('Cache Write', fmt(stats.cacheWrite), 'tokens-cache')].join('');
 
   const filterTypes = ['user', 'assistant', 'system', 'queue-operation', 'summary'].filter(t => typeSet.has(t));
-  $('#toolbar').innerHTML = `<span class="file-name" title="${esc(currentFileName)}">${esc(currentFileName)}</span><span class="spacer"></span>${filterTypes.map(t => `<button class="filter-btn active" data-type="${t}">${t}</button>`).join('')}<button id="expand-all-btn">Expand All</button><button id="collapse-all-btn">Collapse All</button><button class="reload-btn" id="back-btn">Back</button>`;
+  $('#toolbar').innerHTML = `<span class="file-name" title="${esc(currentFileName)}">${esc(currentFileName)}</span><span class="spacer"></span>${filterTypes.map(t => `<button class="filter-btn active" data-type="${t}">${t}</button>`).join('')}<button id="expand-all-btn">Expand All</button><button id="collapse-all-btn">Collapse All</button>${currentFileHandle ? '<button id="refresh-log-btn">Refresh</button>' : ''}<button class="reload-btn" id="back-btn">Back</button>`;
 
   $$('.filter-btn').forEach(btn => btn.addEventListener('click', () => { btn.classList.toggle('active'); applyFilters(); }));
+  if ($('#refresh-log-btn')) $('#refresh-log-btn').addEventListener('click', refreshCurrentFile);
   $('#back-btn').addEventListener('click', () => { dropZone.classList.remove('has-content'); viewer.classList.remove('active'); $('#messages').innerHTML = ''; if (lastDirHandle) scanDirHandle(lastDirHandle); });
   $('#expand-all-btn').addEventListener('click', () => $$('.message:not(.filter-hidden)').forEach(m => m.classList.add('open')));
   $('#collapse-all-btn').addEventListener('click', () => $$('.message').forEach(m => m.classList.remove('open')));
