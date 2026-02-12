@@ -267,7 +267,7 @@ function parseQuickStats(file) {
     reader.onload = e => {
       const text = e.target.result;
       const lines = text.split('\n').filter(l => l.trim());
-      let slug = '', firstUserMsg = '', model = '', firstTs = null, lastTs = null;
+      let firstMsg = '', model = '', firstTs = null, lastTs = null;
       let turns = 0, msgCount = lines.length;
       const reqIds = new Set();
       for (const line of lines) {
@@ -278,18 +278,21 @@ function parseQuickStats(file) {
             if (!firstTs || ts < firstTs) firstTs = ts;
             if (!lastTs || ts > lastTs) lastTs = ts;
           }
-          if (!slug && obj.slug) slug = obj.slug;
           if (!model && obj.message?.model) model = obj.message.model;
           if (obj.type === 'assistant' && obj.requestId) reqIds.add(obj.requestId);
-          if (!firstUserMsg && obj.type === 'user') {
+          if (!firstMsg && obj.type === 'user') {
             const c = obj.message?.content;
-            if (typeof c === 'string') firstUserMsg = c.split('\n')[0].slice(0, 120);
+            if (typeof c === 'string') firstMsg = c.split('\n')[0].slice(0, 150);
+            else if (Array.isArray(c)) {
+              for (const b of c) {
+                if (b.type === 'text' && b.text?.trim()) { firstMsg = b.text.trim().split('\n')[0].slice(0, 150); break; }
+              }
+            }
           }
-          if (obj.type === 'summary' && obj.summary) slug = obj.summary;
         } catch {}
       }
       turns = reqIds.size;
-      resolve({ slug, firstUserMsg, model, firstTs, lastTs, turns, msgCount });
+      resolve({ firstMsg, model, firstTs, lastTs, turns, msgCount });
     };
     reader.readAsText(file);
   });
@@ -322,7 +325,7 @@ async function showRecentFiles(files) {
     const el = document.createElement('div');
     el.className = 'recent-item';
 
-    const label = stats.slug || stats.firstUserMsg || f.name.replace('.jsonl', '').slice(0, 20);
+    const label = stats.firstMsg || f.name.replace('.jsonl', '').slice(0, 20);
     const sizeStr = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size >= 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
     const dateStr = stats.lastTs ? relativeTime(stats.lastTs) : relativeTime(new Date(f.lastModified));
     const turnStr = stats.turns ? stats.turns + ' turns' : '';
@@ -361,6 +364,13 @@ function relativeTime(date) {
 
 function loadFile(file) {
   currentFileName = file.name;
+  // Switch to viewer immediately so the user sees something
+  dropZone.classList.add('has-content');
+  viewer.classList.add('active');
+  $('#stats-bar').innerHTML = '';
+  $('#toolbar').innerHTML = `<span class="file-name">${esc(file.name)}</span><span class="spacer"></span>`;
+  $('#messages').innerHTML = '<div class="recent-loading">Loading ' + esc(file.name) + '...</div>';
+  // Read file async
   const reader = new FileReader();
   reader.onload = e => {
     const lines = e.target.result.split('\n').filter(l => l.trim());
