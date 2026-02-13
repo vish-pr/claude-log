@@ -16,4 +16,4 @@ file:///path/to/index.html
 
 **Option B — Hosted**
 
-Visit [vishpr.com/claude-log](https://vishpr.com/claude-log)
+Visit [vishpr.com/claude-log](https://www.vishpr.com/claude-log)
