@@ -5,98 +5,138 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Code Log Viewer</title>
 <style>
+:root {
+  --bg: #0d1117; --bg-1: #161b22; --bg-2: #21262d; --border: #30363d;
+  --text: #c9d1d9; --text-bright: #e6edf3; --text-muted: #6e7681;
+  --accent: #90b8d0; --accent-fill: #2a4a5c; --green: #7ee787; --purple: #d2a8ff; --yellow: #d29922; --red: #f85149;
+}
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace; background: #0d1117; color: #c9d1d9; font-size: 13px; line-height: 1.5; }
-#drop-zone { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 2rem; }
+body { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.5; }
+
+/* Drop zone */
+#drop-zone { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 32px; }
 #drop-zone.has-content { display: none; }
-.drop-area { border: 2px dashed #30363d; border-radius: 12px; padding: 3rem; text-align: center; max-width: 500px; width: 100%; transition: border-color 0.2s; }
-.drop-area:hover, .drop-area.drag-over { border-color: #58a6ff; }
-.drop-area h1 { font-size: 1.3rem; color: #e6edf3; margin-bottom: 0.5rem; font-weight: 600; }
-.drop-area p { color: #8b949e; margin-bottom: 1.5rem; font-size: 0.85rem; }
-.drop-area.has-list { max-width: 700px; }
+.drop-area { border: 2px dashed var(--border); border-radius: 8px; padding: 32px; text-align: center; max-width: 600px; width: 100%; transition: border-color 0.2s; }
+.drop-area:hover, .drop-area.drag-over { border-color: var(--accent); }
+.drop-area h1 { font-size: 1.3rem; color: var(--text-bright); margin-bottom: 8px; font-weight: 600; }
+.drop-area p { color: var(--text-muted); margin-bottom: 24px; font-size: 0.85rem; }
 input[type="file"] { display: none; }
-.pick-btn { background: #238636; color: #fff; border: none; padding: 0.6rem 1.5rem; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.85rem; font-weight: 500; }
-.pick-btn:hover { background: #2ea043; }
-.btn-row { display: flex; gap: 0.75rem; justify-content: center; margin-bottom: 1.5rem; }
+.pick-btn { background: var(--accent-fill); color: var(--text-bright); border: none; padding: 8px 24px; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 0.85rem; font-weight: 500; transition: background 0.15s; }
+.pick-btn:hover { background: #345e73; }
+.btn-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 24px; }
+
+/* Recent sessions list */
 .recent-list { text-align: left; width: 100%; }
-.recent-list h2 { font-size: 0.8rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; font-weight: 500; }
-.recent-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.6rem; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
-.recent-item:hover { border-color: #58a6ff; background: #161b22; }
-.recent-slug { color: #e6edf3; font-size: 0.8rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.recent-project { color: #8b949e; font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; flex-shrink: 0; }
-.recent-meta, .msg-time { color: #484f58; font-size: 0.7rem; flex-shrink: 0; white-space: nowrap; }
-.recent-loading { color: #8b949e; font-size: 0.8rem; padding: 1rem 0; }
-.refresh-btn { background: none; border: 1px solid #30363d; color: #58a6ff; padding: 0.15rem 0.5rem; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.7rem; margin-left: 0.5rem; }
-.refresh-btn:hover { background: #161b22; border-color: #58a6ff; }
-#viewer { display: none; max-width: 1100px; margin: 0 auto; padding: 1rem; }
+.recent-list h2 { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 500; }
+.recent-item { display: flex; align-items: center; gap: 8px; padding: 8px; border: none; border-radius: 4px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
+.recent-item:hover { background: var(--bg-1); }
+.recent-slug { color: var(--text-bright); font-size: 0.8rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.recent-project { color: var(--text-muted); font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; flex-shrink: 0; }
+.recent-meta, .msg-time { color: var(--text-muted); font-size: 0.7rem; flex-shrink: 0; white-space: nowrap; }
+.recent-loading { color: var(--text-muted); font-size: 0.8rem; padding: 16px 0; }
+.refresh-btn { background: none; border: 1px solid var(--border); color: var(--accent); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.7rem; margin-left: 8px; }
+.refresh-btn:hover { background: var(--bg-1); border-color: var(--accent); }
+
+/* Viewer */
+#viewer { display: none; max-width: 1100px; margin: 0 auto; padding: 16px; }
 #viewer.active { display: block; }
-.stats-bar { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center; }
-.stat { display: flex; align-items: center; gap: 0.35rem; }
-.stat-label { color: #8b949e; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
-.stat-value { color: #e6edf3; font-weight: 600; font-size: 0.85rem; }
-.stat-value.tokens-in { color: #79c0ff; }
-.stat-value.tokens-out { color: #7ee787; }
-.stat-value.tokens-cache { color: #d2a8ff; }
-.toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
-.toolbar button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 0.75rem; }
-.toolbar button:hover { background: #30363d; border-color: #8b949e; }
-.toolbar button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+/* Stats bar — flat */
+.stats-bar { padding: 12px 16px; margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; border-bottom: 1px solid var(--border); }
+.stat { display: flex; align-items: center; gap: 4px; }
+.stat-label { color: var(--text-muted); font-size: 0.75rem; }
+.stat-value { color: var(--text-bright); font-weight: 600; font-size: 0.85rem; }
+
+/* Toolbar */
+.toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+.toolbar button { background: var(--bg-2); border: none; color: var(--text); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.75rem; }
+.toolbar button:hover { background: var(--border); }
+.toolbar button.active { background: var(--accent-fill); color: var(--text-bright); }
 .toolbar .spacer { flex: 1; }
-.toolbar .file-name { color: #8b949e; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
-.reload-btn { background: none; border: none; color: #58a6ff; cursor: pointer; font-family: inherit; font-size: 0.75rem; text-decoration: underline; }
-.message { border: 1px solid #21262d; border-radius: 8px; margin-bottom: 6px; overflow: hidden; transition: border-color 0.15s; }
-.message:hover { border-color: #30363d; }
-.message.type-user { border-left: 3px solid #58a6ff; }
-.message.type-assistant { border-left: 3px solid #7ee787; }
-.message.type-system { border-left: 3px solid #d29922; }
-.message.type-queue-operation { border-left: 3px solid #8b949e; }
-.message.type-summary { border-left: 3px solid #d2a8ff; }
-.msg-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; cursor: pointer; user-select: none; background: #161b22; }
-.msg-header:hover { background: #1c2128; }
-.msg-chevron { color: #484f58; font-size: 0.7rem; transition: transform 0.15s; width: 1em; flex-shrink: 0; }
+.toolbar .file-name { color: var(--text-muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
+.reload-btn { background: var(--bg-2) !important; color: var(--text) !important; }
+
+/* Message cards */
+.message { border: none; border-left: 3px solid var(--bg-2); margin-bottom: 4px; overflow: hidden; transition: border-color 0.15s; }
+.message.type-user { border-left-color: var(--accent); }
+.message.type-assistant { border-left-color: var(--green); }
+.message.type-system { border-left-color: var(--yellow); }
+.message.type-queue-operation { border-left-color: var(--text-muted); }
+.message.type-summary { border-left-color: var(--purple); }
+.msg-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; user-select: none; background: var(--bg-1); }
+.msg-header:hover { background: var(--bg-2); }
+.msg-chevron { color: var(--text-muted); font-size: 0.7rem; transition: transform 0.15s; width: 1em; flex-shrink: 0; }
 .message.open .msg-chevron { transform: rotate(90deg); }
-.badge { padding: 0.15rem 0.5rem; border-radius: 10px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; }
-.badge-user { background: #0d419d; color: #a5d6ff; }
-.badge-assistant { background: #0f5323; color: #7ee787; }
-.badge-system { background: #4d2d00; color: #e3b341; }
-.badge-queue-operation { background: #21262d; color: #8b949e; }
-.badge-summary { background: #2d1f4e; color: #d2a8ff; }
-.msg-preview { color: #8b949e; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; min-width: 0; }
-.copy-btn { background: none; border: none; color: #484f58; cursor: pointer; padding: 0.2rem; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; transition: color 0.15s, background 0.15s; }
-.copy-btn:hover { color: #c9d1d9; background: #30363d; }
-.copy-btn.copied { color: #7ee787; }
+
+/* Badges — unified bg, role-colored text */
+.badge { padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0; background: var(--bg-2); }
+.badge-user { color: var(--accent); }
+.badge-assistant { color: var(--green); }
+.badge-system { color: var(--yellow); }
+.badge-queue-operation { color: var(--text-muted); }
+.badge-summary { color: var(--purple); }
+
+.msg-preview { color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem; min-width: 0; }
+.copy-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; transition: color 0.15s, background 0.15s; }
+.copy-btn:hover { color: var(--text); background: var(--border); }
+.copy-btn.copied { color: var(--green); }
 .copy-btn svg { width: 14px; height: 14px; }
-.msg-tokens { font-size: 0.7rem; flex-shrink: 0; display: flex; gap: 0.4rem; }
-.msg-tokens span { padding: 0.1rem 0.4rem; border-radius: 4px; }
-.tok-in { background: #0d2744; color: #79c0ff; }
-.tok-out { background: #0a3622; color: #7ee787; }
-.tok-cache { background: #231a3a; color: #d2a8ff; }
-.msg-body { display: none; padding: 0.75rem; background: #0d1117; border-top: 1px solid #21262d; }
+
+/* Token pills — text only, no backgrounds */
+.msg-tokens { font-size: 0.7rem; flex-shrink: 0; display: flex; gap: 4px; }
+.msg-tokens span { padding: 0; }
+.tok-in { color: var(--accent); }
+.tok-out { color: var(--green); }
+.tok-cache { color: var(--purple); }
+
+/* Message body */
+.msg-body { display: none; padding: 12px; background: var(--bg); border-top: 1px solid var(--bg-2); }
 .message.open .msg-body { display: block; }
-.content-block { margin-bottom: 0.75rem; }
+.content-block { margin-bottom: 12px; }
 .content-block:last-child { margin-bottom: 0; }
-.text-block { white-space: pre-wrap; word-break: break-word; color: #c9d1d9; }
-.text-block code { background: #161b22; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.9em; }
-.tool-block, .tool-result-block { border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
-.tool-block summary, .tool-result-block summary { padding: 0.4rem 0.6rem; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem; list-style: none; }
-.tool-block summary { background: #161b22; }
-.tool-result-block summary { background: #1a1e24; }
+.text-block { white-space: pre-wrap; word-break: break-word; color: var(--text); }
+.text-block code { background: var(--bg-1); padding: 4px; border-radius: 4px; font-size: 0.9em; }
+
+/* Tool blocks — unified */
+.tool-block, .tool-result-block { border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.tool-block summary, .tool-result-block summary { padding: 4px 8px; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; gap: 4px; list-style: none; background: var(--bg-1); }
 .tool-block summary::-webkit-details-marker, .tool-result-block summary::-webkit-details-marker { display: none; }
-.tool-block summary::before, .tool-result-block summary::before { content: '\25b6'; font-size: 0.6rem; color: #484f58; transition: transform 0.15s; }
+.tool-block summary::before, .tool-result-block summary::before { content: '\25b6'; font-size: 0.6rem; color: var(--text-muted); transition: transform 0.15s; }
 .tool-block[open] summary::before, .tool-result-block[open] summary::before { transform: rotate(90deg); }
-.tool-name { color: #d2a8ff; font-weight: 600; }
-.tool-input-preview { color: #8b949e; margin-left: 0.3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-body, .tool-result-body { padding: 0.5rem 0.6rem; background: #0d1117; max-height: 400px; overflow: auto; }
-.tool-body pre, .tool-result-body pre { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; color: #8b949e; }
-.result-label { color: #79c0ff; font-weight: 600; }
-.result-error .result-label { color: #f85149; }
-.meta-row { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.7rem; color: #484f58; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #21262d; }
-.meta-row span { display: flex; align-items: center; gap: 0.25rem; }
+.tool-name { color: var(--purple); font-weight: 600; }
+.tool-input-preview { color: var(--text-muted); margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-body, .tool-result-body { padding: 8px; background: var(--bg); max-height: 400px; overflow: auto; }
+.tool-body pre, .tool-result-body pre { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; color: var(--text-muted); }
+.result-label { color: var(--accent); font-weight: 600; }
+.result-error .result-label { color: var(--red); }
+
+.meta-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.7rem; color: var(--text-muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--bg-2); }
+.meta-row span { display: flex; align-items: center; gap: 4px; }
 .message.filter-hidden { display: none; }
+
+/* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #0d1117; }
-::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #484f58; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Accessibility */
+*:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .stat-label { display: none; }
+  .msg-tokens { display: none; }
+  .recent-project { display: none; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar .file-name { flex-basis: 100%; }
+  .toolbar button { padding: 8px 12px; }
+  .msg-header { padding: 12px; }
+  .recent-item { padding: 12px; }
+}
 </style>
 </head>
 <body>
@@ -106,13 +146,13 @@ input[type="file"] { display: none; }
     <p>Drop a .jsonl file or the ~/.claude/projects/ folder</p>
     <div class="btn-row">
       <button class="pick-btn" onclick="document.getElementById('file-input').click()">Choose .jsonl file</button>
-      <button class="pick-btn" id="pick-dir-btn" style="background:#1f6feb">Choose projects folder</button>
+      <button class="pick-btn" id="pick-dir-btn">Choose projects folder</button>
     </div>
     <input type="file" id="file-input" accept=".jsonl">
     <div id="recent-container"></div>
   </div>
 </div>
-<div id="viewer">
+<div id="viewer" aria-label="Log viewer">
   <div class="stats-bar" id="stats-bar"></div>
   <div class="toolbar" id="toolbar"></div>
   <div id="messages"></div>
@@ -226,7 +266,10 @@ async function showRecentFiles(files) {
     const modelStr = stats.model ? stats.model.replace('claude-', '').split('-202')[0] : '';
     const turnStr = stats.turns ? stats.turns + ' turns' : '';
     el.innerHTML = `<span class="recent-slug" title="${esc(label)}">${esc(label)}</span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[modelStr, turnStr, sizeStr, dateStr].filter(Boolean).join(' · ')}</span>`;
-    el.addEventListener('click', () => loadFile(f));
+    el.addEventListener('click', async () => {
+      if (f._fileHandle) { try { const fresh = await f._fileHandle.getFile(); fresh._fileHandle = f._fileHandle; loadFile(fresh); } catch (err) { console.error('Failed to re-read file:', err); loadFile(f); } }
+      else loadFile(f);
+    });
     list.appendChild(el);
   }
 }
@@ -252,10 +295,19 @@ function loadFile(file) {
   $('#toolbar').innerHTML = `<span class="file-name">${esc(file.name)}</span><span class="spacer"></span>`;
   $('#messages').innerHTML = '<div class="recent-loading">Loading ' + esc(file.name) + '...</div>';
   const reader = new FileReader();
+  reader.onerror = () => {
+    console.error('FileReader error:', reader.error);
+    $('#messages').innerHTML = `<div class="recent-loading" style="color:var(--red)">Failed to read file: ${esc(reader.error?.message || 'unknown error')}</div>`;
+  };
   reader.onload = e => {
-    const entries = [];
-    for (const line of e.target.result.split('\n')) { if (line.trim()) try { entries.push(JSON.parse(line)); } catch {} }
-    render(entries);
+    try {
+      const entries = [];
+      for (const line of e.target.result.split('\n')) { if (line.trim()) try { entries.push(JSON.parse(line)); } catch {} }
+      render(entries);
+    } catch (err) {
+      console.error('Render error:', err);
+      $('#messages').innerHTML = `<div class="recent-loading" style="color:var(--red)">Error rendering log: ${esc(err.message)}</div>`;
+    }
   };
   reader.readAsText(file);
 }
@@ -291,9 +343,9 @@ function render(entries) {
   const duration = stats.firstTs && stats.lastTs ? Math.round((stats.lastTs - stats.firstTs) / 1000) : 0;
   const durationStr = duration > 0 ? (duration < 60 ? `${duration}s` : `${Math.floor(duration/60)}m ${duration%60}s`) : '-';
   const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1) + 'M' : n >= 1000 ? (n/1000).toFixed(1) + 'k' : String(n);
-  const mkStat = (l, v, c) => `<div class="stat"><span class="stat-label">${l}</span><span class="stat-value ${c}">${v}</span></div>`;
+  const mkStat = (l, v) => `<div class="stat"><span class="stat-label">${l}</span><span class="stat-value">${v}</span></div>`;
 
-  $('#stats-bar').innerHTML = [mkStat('Model', stats.model || '-', ''), mkStat('Duration', durationStr, ''), mkStat('Turns', stats.turns, ''), mkStat('Messages', stats.messages, ''), mkStat('Input', fmt(stats.inputTokens), 'tokens-in'), mkStat('Output', fmt(stats.outputTokens), 'tokens-out'), mkStat('Cache Read', fmt(stats.cacheRead), 'tokens-cache'), mkStat('Cache Write', fmt(stats.cacheWrite), 'tokens-cache')].join('');
+  $('#stats-bar').innerHTML = [mkStat('Model', stats.model || '-'), mkStat('Duration', durationStr), mkStat('Turns', stats.turns), mkStat('Messages', stats.messages), mkStat('Input', fmt(stats.inputTokens)), mkStat('Output', fmt(stats.outputTokens)), mkStat('Cache Read', fmt(stats.cacheRead)), mkStat('Cache Write', fmt(stats.cacheWrite))].join('');
 
   const filterTypes = ['user', 'assistant', 'system', 'queue-operation', 'summary'].filter(t => typeSet.has(t));
   $('#toolbar').innerHTML = `<span class="file-name" title="${esc(currentFileName)}">${esc(currentFileName)}</span><span class="spacer"></span>${filterTypes.map(t => `<button class="filter-btn active" data-type="${t}">${t}</button>`).join('')}<button id="expand-all-btn">Expand All</button><button id="collapse-all-btn">Collapse All</button>${currentFileHandle ? '<button id="refresh-log-btn">Refresh</button>' : ''}<button class="reload-btn" id="back-btn">Back</button>`;
