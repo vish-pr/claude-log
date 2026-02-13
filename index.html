@@ -163,7 +163,19 @@ const COPY_ICON = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75
 const CHECK_ICON = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>';
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 const [fileInput, dropArea, dropZone, viewer] = ['#file-input', '#drop-area', '#drop-zone', '#viewer'].map($);
-let currentFileName = '', lastDirHandle = null, currentFileHandle = null;
+let currentFileName = '', lastDirHandle = null, currentFileHandle = null, inLogView = false;
+
+function goHome() {
+  inLogView = false;
+  dropZone.classList.remove('has-content');
+  viewer.classList.remove('active');
+  $('#messages').innerHTML = '';
+  if (lastDirHandle) scanDirHandle(lastDirHandle);
+}
+
+window.addEventListener('popstate', e => {
+  if (inLogView) goHome();
+});
 
 fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
 dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
@@ -289,6 +301,8 @@ function relativeTime(date) {
 function loadFile(file) {
   currentFileName = file.name;
   currentFileHandle = file._fileHandle || null;
+  if (!inLogView) history.pushState({ view: 'log' }, '');
+  inLogView = true;
   dropZone.classList.add('has-content');
   viewer.classList.add('active');
   $('#stats-bar').innerHTML = '';
@@ -352,7 +366,7 @@ function render(entries) {
 
   $$('.filter-btn').forEach(btn => btn.addEventListener('click', () => { btn.classList.toggle('active'); applyFilters(); }));
   if ($('#refresh-log-btn')) $('#refresh-log-btn').addEventListener('click', refreshCurrentFile);
-  $('#back-btn').addEventListener('click', () => { dropZone.classList.remove('has-content'); viewer.classList.remove('active'); $('#messages').innerHTML = ''; if (lastDirHandle) scanDirHandle(lastDirHandle); });
+  $('#back-btn').addEventListener('click', () => history.back());
   $('#expand-all-btn').addEventListener('click', () => $$('.message:not(.filter-hidden)').forEach(m => m.classList.add('open')));
   $('#collapse-all-btn').addEventListener('click', () => $$('.message').forEach(m => m.classList.remove('open')));
 
