@@ -114,6 +114,12 @@ input[type="file"] { display: none; }
 .meta-row span { display: flex; align-items: center; gap: 4px; }
 .message.filter-hidden { display: none; }
 
+/* Skeleton loading */
+@keyframes skeleton-pulse { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.4; } }
+.recent-item.skeleton .skel-bar { background: var(--bg-2); border-radius: 3px; animation: skeleton-pulse 1.2s ease-in-out infinite; }
+.recent-item.skeleton .recent-slug .skel-bar { width: 60%; height: 12px; display: inline-block; }
+.recent-item.skeleton .recent-meta .skel-bar { width: 80px; height: 10px; display: inline-block; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
@@ -206,9 +212,12 @@ async function loadStoredDirHandle() {
 }
 
 (async function autoLoad() {
+  // Show skeletons immediately — removes flash of empty drop zone
+  renderSkeletons();
   const handle = await loadStoredDirHandle();
-  if (!handle) return;
+  if (!handle) { $('#recent-container').innerHTML = ''; return; }
   if (await handle.queryPermission({ mode: 'read' }) === 'granted') return scanDirHandle(handle);
+  $('#recent-container').innerHTML = '';
   lastDirHandle = handle;
   $('#pick-dir-btn').textContent = 'Open saved projects folder';
   $('#pick-dir-btn').onclick = async () => {
@@ -216,9 +225,21 @@ async function loadStoredDirHandle() {
   };
 })();
 
+function renderSkeletons() {
+  const container = $('#recent-container');
+  container.innerHTML = `<div class="recent-list"><h2>Recent sessions</h2></div>`;
+  const list = container.querySelector('.recent-list');
+  for (let i = 0; i < 10; i++) {
+    const el = document.createElement('div');
+    el.className = 'recent-item skeleton';
+    el.innerHTML = `<span class="recent-slug"><span class="skel-bar">&nbsp;</span></span><span class="recent-meta"><span class="skel-bar">&nbsp;</span></span>`;
+    list.appendChild(el);
+  }
+}
+
 async function scanDirHandle(dirHandle) {
   lastDirHandle = dirHandle;
-  $('#recent-container').innerHTML = '<div class="recent-loading">Scanning for .jsonl files...</div>';
+  if (!$('.recent-item.skeleton')) renderSkeletons();
   dropArea.classList.add('has-list');
   const files = [];
   await walkHandle(dirHandle, '', files);
@@ -234,56 +255,82 @@ async function walkHandle(dirHandle, path, files) {
 
 function parseQuickStats(file) {
   return new Promise(resolve => {
+    const CHUNK = 16384;
     const reader = new FileReader();
+    const fallback = { firstMsg: '', model: '', firstTs: null, lastTs: new Date(file.lastModified), turns: 0 };
+    const timeout = setTimeout(() => { try { reader.abort(); } catch {} resolve(fallback); }, 5000);
+    reader.onerror = () => { clearTimeout(timeout); resolve(fallback); };
     reader.onload = e => {
+      clearTimeout(timeout);
       const lines = e.target.result.split('\n').filter(l => l.trim());
-      let firstMsg = '', model = '', firstTs = null, lastTs = null;
-      const reqIds = new Set();
+      let firstMsg = '', model = '', firstTs = null;
       for (const line of lines) {
         try {
           const obj = JSON.parse(line);
           const ts = obj.timestamp ? new Date(obj.timestamp) : null;
-          if (ts) { if (!firstTs || ts < firstTs) firstTs = ts; if (!lastTs || ts > lastTs) lastTs = ts; }
+          if (ts && !firstTs) firstTs = ts;
           if (!model && obj.message?.model) model = obj.message.model;
-          if (obj.type === 'assistant' && obj.requestId) reqIds.add(obj.requestId);
           if (!firstMsg && obj.type === 'user') {
             const c = obj.message?.content;
             if (typeof c === 'string') firstMsg = c.split('\n')[0].slice(0, 150);
             else if (Array.isArray(c)) { for (const b of c) { if (b.type === 'text' && b.text?.trim()) { firstMsg = b.text.trim().split('\n')[0].slice(0, 150); break; } } }
           }
+          if (firstMsg && model) break;
         } catch {}
       }
-      resolve({ firstMsg, model, firstTs, lastTs, turns: reqIds.size, msgCount: lines.length });
+      resolve({ firstMsg, model, firstTs, lastTs: new Date(file.lastModified), turns: 0 });
     };
-    reader.readAsText(file);
+    reader.readAsText(file.slice(0, CHUNK));
   });
 }
 
 async function showRecentFiles(files) {
   files.sort((a, b) => b.lastModified - a.lastModified);
   const top = files.slice(0, 10), container = $('#recent-container');
-  if (!top.length) { container.innerHTML = '<div class="recent-loading">No .jsonl files found.</div>'; return; }
-  container.innerHTML = '<div class="recent-loading">Parsing stats...</div>';
-  const infos = [];
-  for (const f of top) infos.push({ file: f, stats: await parseQuickStats(f), project: extractProject(f) });
-  container.innerHTML = `<div class="recent-list"><h2>Recent sessions (${files.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button></h2></div>`;
   const list = container.querySelector('.recent-list');
+  const skeletons = list ? Array.from(list.querySelectorAll('.recent-item.skeleton')) : [];
+
+  if (!top.length) { container.innerHTML = '<div class="recent-loading">No .jsonl files found.</div>'; return; }
+
+  // Add header if not present, remove extra skeletons beyond actual count
+  if (!list) {
+    container.innerHTML = `<div class="recent-list"><h2>Recent sessions (${files.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button></h2></div>`;
+  } else {
+    list.querySelector('h2').innerHTML = `Recent sessions (${files.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button>`;
+    // Remove excess skeletons
+    for (let i = top.length; i < skeletons.length; i++) skeletons[i].remove();
+  }
+  const recentList = container.querySelector('.recent-list');
   $('#refresh-btn').addEventListener('click', () => lastDirHandle && scanDirHandle(lastDirHandle));
-  for (const { file: f, stats, project } of infos) {
-    const el = document.createElement('div');
-    el.className = 'recent-item';
-    const label = stats.firstMsg || f.name.replace('.jsonl', '').slice(0, 20);
+
+  // Reuse existing skeleton slots or create new ones
+  const slots = [];
+  for (let i = 0; i < top.length; i++) {
+    const f = top[i];
+    const el = skeletons[i] || (() => { const d = document.createElement('div'); d.className = 'recent-item skeleton'; recentList.appendChild(d); return d; })();
+    const project = extractProject(f);
     const sizeStr = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size >= 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
-    const dateStr = relativeTime(stats.lastTs || new Date(f.lastModified));
-    const modelStr = stats.model ? stats.model.replace('claude-', '').split('-202')[0] : '';
-    const turnStr = stats.turns ? stats.turns + ' turns' : '';
-    el.innerHTML = `<span class="recent-slug" title="${esc(label)}">${esc(label)}</span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[modelStr, turnStr, sizeStr, dateStr].filter(Boolean).join(' · ')}</span>`;
+    const dateStr = relativeTime(new Date(f.lastModified));
+    el.innerHTML = `<span class="recent-slug"><span class="skel-bar">&nbsp;</span></span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[sizeStr, dateStr].filter(Boolean).join(' · ')}</span>`;
     el.addEventListener('click', async () => {
       if (f._fileHandle) { try { const fresh = await f._fileHandle.getFile(); fresh._fileHandle = f._fileHandle; loadFile(fresh); } catch (err) { console.error('Failed to re-read file:', err); loadFile(f); } }
       else loadFile(f);
     });
-    list.appendChild(el);
+    slots.push({ el, file: f });
   }
+
+  // Parse stats in parallel (only first 16KB each), update each slot as it resolves
+  await Promise.allSettled(slots.map(async ({ el, file: f }) => {
+    const stats = await parseQuickStats(f);
+    const label = stats.firstMsg || f.name.replace('.jsonl', '').slice(0, 30);
+    const sizeStr = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size >= 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
+    const dateStr = relativeTime(stats.lastTs || new Date(f.lastModified));
+    const modelStr = stats.model ? stats.model.replace('claude-', '').split('-202')[0] : '';
+    el.querySelector('.recent-slug').innerHTML = esc(label);
+    el.querySelector('.recent-slug').title = label;
+    el.querySelector('.recent-meta').textContent = [modelStr, sizeStr, dateStr].filter(Boolean).join(' · ');
+    el.classList.remove('skeleton');
+  }));
 }
 
 function extractProject(file) { const d = file._dirPath || ''; return d ? d.replace(/^-/, '').replaceAll('-', '/') : ''; }
@@ -298,7 +345,7 @@ function relativeTime(date) {
   return days < 7 ? days + 'd ago' : date.toLocaleDateString();
 }
 
-function loadFile(file) {
+function loadFile(file, attempt = 0) {
   currentFileName = file.name;
   currentFileHandle = file._fileHandle || null;
   if (!inLogView) history.pushState({ view: 'log' }, '');
@@ -307,23 +354,43 @@ function loadFile(file) {
   viewer.classList.add('active');
   $('#stats-bar').innerHTML = '';
   $('#toolbar').innerHTML = `<span class="file-name">${esc(file.name)}</span><span class="spacer"></span>`;
-  $('#messages').innerHTML = '<div class="recent-loading">Loading ' + esc(file.name) + '...</div>';
+  const retryLabel = attempt > 0 ? ` (attempt ${attempt + 1})` : '';
+  $('#messages').innerHTML = '<div class="recent-loading">Loading ' + esc(file.name) + retryLabel + '...</div>';
   const reader = new FileReader();
+  let settled = false;
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    try { reader.abort(); } catch {}
+    if (attempt < 2) { loadFile(file, attempt + 1); return; }
+    showLoadError('Loading timed out', file);
+  }, 30000);
   reader.onerror = () => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
     console.error('FileReader error:', reader.error);
-    $('#messages').innerHTML = `<div class="recent-loading" style="color:var(--red)">Failed to read file: ${esc(reader.error?.message || 'unknown error')}</div>`;
+    showLoadError(reader.error?.message || 'unknown error', file);
   };
   reader.onload = e => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
     try {
       const entries = [];
       for (const line of e.target.result.split('\n')) { if (line.trim()) try { entries.push(JSON.parse(line)); } catch {} }
       render(entries);
     } catch (err) {
       console.error('Render error:', err);
-      $('#messages').innerHTML = `<div class="recent-loading" style="color:var(--red)">Error rendering log: ${esc(err.message)}</div>`;
+      showLoadError(err.message, file);
     }
   };
   reader.readAsText(file);
+}
+
+function showLoadError(msg, file) {
+  $('#messages').innerHTML = `<div class="recent-loading" style="color:var(--red)">${esc(msg)} <button class="pick-btn" id="retry-btn">Retry</button></div>`;
+  $('#retry-btn').addEventListener('click', () => loadFile(file));
 }
 
 async function refreshCurrentFile() {
