@@ -26,7 +26,7 @@ input[type="file"] { display: none; }
 .btn-row { display: flex; gap: 12px; justify-content: center; margin-bottom: 24px; }
 
 /* Recent sessions list */
-.recent-list { text-align: left; width: 100%; }
+.recent-list { text-align: left; width: 100%; max-height: 70vh; overflow-y: auto; }
 .recent-list h2 { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; font-weight: 500; }
 .recent-item { display: flex; align-items: center; gap: 8px; padding: 8px; border: none; border-radius: 4px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
 .recent-item:hover { background: var(--bg-1); }
@@ -167,6 +167,7 @@ input[type="file"] { display: none; }
 <script>
 const COPY_ICON = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25z"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>';
+const MAX = 20;
 const $ = s => document.querySelector(s), $$ = s => document.querySelectorAll(s);
 const [fileInput, dropArea, dropZone, viewer] = ['#file-input', '#drop-area', '#drop-zone', '#viewer'].map($);
 let currentFileName = '', lastDirHandle = null, currentFileHandle = null, inLogView = false;
@@ -211,13 +212,39 @@ async function loadStoredDirHandle() {
   try { const db = await openDB(); const tx = db.transaction('kv', 'readonly'); const req = tx.objectStore('kv').get('projectsDir'); return new Promise(r => { req.onsuccess = () => r(req.result || null); req.onerror = () => r(null); }); } catch { return null; }
 }
 
+async function storeScanCache(entries) {
+  try { const db = await openDB(); const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(entries, 'scanCache'); await new Promise(r => { tx.oncomplete = r; }); } catch {}
+}
+
+async function loadScanCache() {
+  try { const db = await openDB(); const tx = db.transaction('kv', 'readonly'); const req = tx.objectStore('kv').get('scanCache'); return new Promise(r => { req.onsuccess = () => r(req.result || null); req.onerror = () => r(null); }); } catch { return null; }
+}
+
+function renderFromCache(cache) {
+  const container = $('#recent-container');
+  container.innerHTML = `<div class="recent-list"><h2>Recent sessions (${cache.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button></h2></div>`;
+  const recentList = container.querySelector('.recent-list');
+  dropArea.classList.add('has-list');
+  for (const item of cache) {
+    const el = document.createElement('div');
+    el.className = 'recent-item';
+    const label = item.firstMsg || item.name.replace('.jsonl', '').slice(0, 30);
+    const sizeStr = item.size >= 1048576 ? (item.size / 1048576).toFixed(1) + ' MB' : item.size >= 1024 ? (item.size / 1024).toFixed(0) + ' KB' : item.size + ' B';
+    const dateStr = relativeTime(new Date(item.lastModified));
+    const modelStr = item.model ? item.model.replace('claude-', '').split('-202')[0] : '';
+    const project = item.dirPath ? item.dirPath.replace(/^-/, '').replaceAll('-', '/') : '';
+    el.innerHTML = `<span class="recent-slug" title="${esc(label)}">${esc(label)}</span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[modelStr, sizeStr, dateStr].filter(Boolean).join(' · ')}</span>`;
+    recentList.appendChild(el);
+  }
+  $('#refresh-btn').onclick = () => lastDirHandle && scanDirHandle(lastDirHandle);
+}
+
 (async function autoLoad() {
-  // Show skeletons immediately — removes flash of empty drop zone
-  renderSkeletons();
-  const handle = await loadStoredDirHandle();
-  if (!handle) { $('#recent-container').innerHTML = ''; return; }
+  const [handle, cache] = await Promise.all([loadStoredDirHandle(), loadScanCache()]);
+  if (cache && cache.length) renderFromCache(cache); else renderSkeletons();
+  if (!handle) { if (!cache?.length) $('#recent-container').innerHTML = ''; return; }
   if (await handle.queryPermission({ mode: 'read' }) === 'granted') return scanDirHandle(handle);
-  $('#recent-container').innerHTML = '';
+  if (!cache?.length) $('#recent-container').innerHTML = '';
   lastDirHandle = handle;
   $('#pick-dir-btn').textContent = 'Open saved projects folder';
   $('#pick-dir-btn').onclick = async () => {
@@ -229,7 +256,7 @@ function renderSkeletons() {
   const container = $('#recent-container');
   container.innerHTML = `<div class="recent-list"><h2>Recent sessions</h2></div>`;
   const list = container.querySelector('.recent-list');
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < MAX; i++) {
     const el = document.createElement('div');
     el.className = 'recent-item skeleton';
     el.innerHTML = `<span class="recent-slug"><span class="skel-bar">&nbsp;</span></span><span class="recent-meta"><span class="skel-bar">&nbsp;</span></span>`;
@@ -239,7 +266,7 @@ function renderSkeletons() {
 
 async function scanDirHandle(dirHandle) {
   lastDirHandle = dirHandle;
-  if (!$('.recent-item.skeleton')) renderSkeletons();
+  if (!$('.recent-item')) renderSkeletons();
   dropArea.classList.add('has-list');
   const files = [];
   await walkHandle(dirHandle, '', files);
@@ -286,51 +313,96 @@ function parseQuickStats(file) {
 
 async function showRecentFiles(files) {
   files.sort((a, b) => b.lastModified - a.lastModified);
-  const top = files.slice(0, 10), container = $('#recent-container');
-  const list = container.querySelector('.recent-list');
-  const skeletons = list ? Array.from(list.querySelectorAll('.recent-item.skeleton')) : [];
+  const container = $('#recent-container');
+  if (!files.length) { container.innerHTML = '<div class="recent-loading">No .jsonl files found.</div>'; return; }
 
-  if (!top.length) { container.innerHTML = '<div class="recent-loading">No .jsonl files found.</div>'; return; }
+  const cache = await loadScanCache();
+  const fmtSz = sz => sz >= 1048576 ? (sz / 1048576).toFixed(1) + ' MB' : sz >= 1024 ? (sz / 1024).toFixed(0) + ' KB' : sz + ' B';
+  const clickFor = f => async () => {
+    if (f._fileHandle) { try { const fresh = await f._fileHandle.getFile(); fresh._fileHandle = f._fileHandle; loadFile(fresh); } catch (err) { console.error('Failed to re-read file:', err); loadFile(f); } }
+    else loadFile(f);
+  };
 
-  // Add header if not present, remove extra skeletons beyond actual count
-  if (!list) {
-    container.innerHTML = `<div class="recent-list"><h2>Recent sessions (${files.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button></h2></div>`;
-  } else {
-    list.querySelector('h2').innerHTML = `Recent sessions (${files.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button>`;
-    // Remove excess skeletons
-    for (let i = top.length; i < skeletons.length; i++) skeletons[i].remove();
-  }
+  container.innerHTML = `<div class="recent-list"><h2>Recent sessions (${files.length} total) <button class="refresh-btn" id="refresh-btn">Refresh</button></h2></div>`;
   const recentList = container.querySelector('.recent-list');
-  $('#refresh-btn').addEventListener('click', () => lastDirHandle && scanDirHandle(lastDirHandle));
+  $('#refresh-btn').onclick = () => lastDirHandle && scanDirHandle(lastDirHandle);
 
-  // Reuse existing skeleton slots or create new ones
-  const slots = [];
-  for (let i = 0; i < top.length; i++) {
-    const f = top[i];
-    const el = skeletons[i] || (() => { const d = document.createElement('div'); d.className = 'recent-item skeleton'; recentList.appendChild(d); return d; })();
-    const project = extractProject(f);
-    const sizeStr = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size >= 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
-    const dateStr = relativeTime(new Date(f.lastModified));
-    el.innerHTML = `<span class="recent-slug"><span class="skel-bar">&nbsp;</span></span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[sizeStr, dateStr].filter(Boolean).join(' · ')}</span>`;
-    el.addEventListener('click', async () => {
-      if (f._fileHandle) { try { const fresh = await f._fileHandle.getFile(); fresh._fileHandle = f._fileHandle; loadFile(fresh); } catch (err) { console.error('Failed to re-read file:', err); loadFile(f); } }
-      else loadFile(f);
-    });
-    slots.push({ el, file: f });
+  const newCache = [];
+
+  if (cache && cache.length) {
+    // 1. Most recent timestamp in cache (cache is sorted desc)
+    const newestTs = cache[0].lastModified;
+
+    // 2. Files newer than the most recent cached entry
+    const newFiles = files.filter(f => f.lastModified > newestTs).slice(0, MAX);
+    const numFromCache = Math.max(0, MAX - newFiles.length);
+
+    // 3. Skeleton slots for new files on top — start fetch in parallel
+    const needsParsing = [];
+    for (const f of newFiles) {
+      const el = document.createElement('div');
+      el.className = 'recent-item skeleton';
+      const project = extractProject(f);
+      el.innerHTML = `<span class="recent-slug"><span class="skel-bar">&nbsp;</span></span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[fmtSz(f.size), relativeTime(new Date(f.lastModified))].filter(Boolean).join(' · ')}</span>`;
+      el.onclick = clickFor(f);
+      recentList.appendChild(el);
+      needsParsing.push({ el, file: f });
+    }
+
+    // 4. Render rest from cache
+    const fileByKey = new Map();
+    for (const f of files) fileByKey.set((f._dirPath || '') + '/' + f.name, f);
+
+    for (const item of cache.slice(0, numFromCache)) {
+      const el = document.createElement('div');
+      el.className = 'recent-item';
+      const label = item.firstMsg || item.name.replace('.jsonl', '').slice(0, 30);
+      const modelStr = item.model ? item.model.replace('claude-', '').split('-202')[0] : '';
+      const project = item.dirPath ? item.dirPath.replace(/^-/, '').replaceAll('-', '/') : '';
+      el.innerHTML = `<span class="recent-slug" title="${esc(label)}">${esc(label)}</span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[modelStr, fmtSz(item.size), relativeTime(new Date(item.lastModified))].filter(Boolean).join(' · ')}</span>`;
+      const f = fileByKey.get(item.key);
+      if (f) el.onclick = clickFor(f);
+      recentList.appendChild(el);
+      newCache.push(item);
+    }
+
+    // Fetch stats for new files in parallel
+    await Promise.allSettled(needsParsing.map(async ({ el, file: f }) => {
+      const stats = await parseQuickStats(f);
+      const label = stats.firstMsg || f.name.replace('.jsonl', '').slice(0, 30);
+      const modelStr = stats.model ? stats.model.replace('claude-', '').split('-202')[0] : '';
+      el.querySelector('.recent-slug').innerHTML = esc(label);
+      el.querySelector('.recent-slug').title = label;
+      el.querySelector('.recent-meta').textContent = [modelStr, fmtSz(f.size), relativeTime(stats.lastTs || new Date(f.lastModified))].filter(Boolean).join(' · ');
+      el.classList.remove('skeleton');
+      newCache.push({ key: (f._dirPath || '') + '/' + f.name, name: f.name, dirPath: f._dirPath || '', size: f.size, lastModified: f.lastModified, firstMsg: stats.firstMsg, model: stats.model, firstTs: stats.firstTs?.getTime() || null });
+    }));
+  } else {
+    // No cache — skeleton everything
+    for (const f of files.slice(0, MAX)) {
+      const el = document.createElement('div');
+      el.className = 'recent-item skeleton';
+      const project = extractProject(f);
+      el.innerHTML = `<span class="recent-slug"><span class="skel-bar">&nbsp;</span></span><span class="recent-project" title="${esc(project)}">${esc(project)}</span><span class="recent-meta">${[fmtSz(f.size), relativeTime(new Date(f.lastModified))].filter(Boolean).join(' · ')}</span>`;
+      el.onclick = clickFor(f);
+      recentList.appendChild(el);
+    }
+
+    await Promise.allSettled(Array.from(recentList.querySelectorAll('.recent-item.skeleton')).map(async (el, i) => {
+      const f = files[i];
+      const stats = await parseQuickStats(f);
+      const label = stats.firstMsg || f.name.replace('.jsonl', '').slice(0, 30);
+      const modelStr = stats.model ? stats.model.replace('claude-', '').split('-202')[0] : '';
+      el.querySelector('.recent-slug').innerHTML = esc(label);
+      el.querySelector('.recent-slug').title = label;
+      el.querySelector('.recent-meta').textContent = [modelStr, fmtSz(f.size), relativeTime(stats.lastTs || new Date(f.lastModified))].filter(Boolean).join(' · ');
+      el.classList.remove('skeleton');
+      newCache.push({ key: (f._dirPath || '') + '/' + f.name, name: f.name, dirPath: f._dirPath || '', size: f.size, lastModified: f.lastModified, firstMsg: stats.firstMsg, model: stats.model, firstTs: stats.firstTs?.getTime() || null });
+    }));
   }
 
-  // Parse stats in parallel (only first 16KB each), update each slot as it resolves
-  await Promise.allSettled(slots.map(async ({ el, file: f }) => {
-    const stats = await parseQuickStats(f);
-    const label = stats.firstMsg || f.name.replace('.jsonl', '').slice(0, 30);
-    const sizeStr = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : f.size >= 1024 ? (f.size / 1024).toFixed(0) + ' KB' : f.size + ' B';
-    const dateStr = relativeTime(stats.lastTs || new Date(f.lastModified));
-    const modelStr = stats.model ? stats.model.replace('claude-', '').split('-202')[0] : '';
-    el.querySelector('.recent-slug').innerHTML = esc(label);
-    el.querySelector('.recent-slug').title = label;
-    el.querySelector('.recent-meta').textContent = [modelStr, sizeStr, dateStr].filter(Boolean).join(' · ');
-    el.classList.remove('skeleton');
-  }));
+  newCache.sort((a, b) => b.lastModified - a.lastModified);
+  storeScanCache(newCache.slice(0, MAX));
 }
 
 function extractProject(file) { const d = file._dirPath || ''; return d ? d.replace(/^-/, '').replaceAll('-', '/') : ''; }
